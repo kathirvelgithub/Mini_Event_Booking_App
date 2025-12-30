@@ -21,74 +21,7 @@ A full-stack event management application built with the MERN stack (MongoDB, Ex
 - ✅ **Concurrency Handling**: Atomic operations prevent overbooking
 - ✅ **Role-based Access**: Organizers can create/edit, Attendees can RSVP
 
----
-
-## 📋 Technical Details
-
-### RSVP Capacity & Concurrency Handling
-
-The system uses **MongoDB atomic operations** and **transactions** to prevent race conditions when multiple users attempt to RSVP for the last available spot.
-
-#### Strategy: Atomic `findOneAndUpdate` with Transactions
-
-```javascript
-// POST /api/events/:id/rsvp - Uses atomic operations
-router.post('/:id/rsvp', auth, async (req, res) => {
-  const session = await mongoose.startSession();
-  
-  try {
-    session.startTransaction();
-
-    // Atomic operation: Check capacity AND add user in ONE operation
-    const event = await Event.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        // Atomic conditions:
-        // 1. Event has available capacity
-        $expr: { $lt: [{ $size: '$attendees' }, '$maxAttendees'] },
-        // 2. User not already attending
-        attendees: { $ne: req.user._id }
-      },
-      {
-        // Atomically add user to attendees
-        $addToSet: { attendees: req.user._id }
-      },
-      { new: true, session }
-    );
-
-    if (!event) {
-      await session.abortTransaction();
-      // Return appropriate error (capacity full, already RSVP'd, etc.)
-    }
-
-    // Create RSVP record
-    const rsvp = new RSVP({ event: event._id, user: req.user._id });
-    await rsvp.save({ session });
-    
-    await session.commitTransaction();
-    res.status(201).json({ message: 'Successfully RSVP\'d' });
-  } catch (error) {
-    await session.abortTransaction();
-    // Handle errors
-  } finally {
-    session.endSession();
-  }
-});
-```
-
-#### Why This Works:
-1. **`findOneAndUpdate`** is atomic - the capacity check and attendee addition happen in a single database operation
-2. **`$expr`** with `$size` comparison ensures accurate real-time capacity checking
-3. **`$addToSet`** prevents duplicate entries
-4. **`$ne` condition** ensures user isn't already attending
-5. **Transactions** ensure RSVP record and event update are consistent
-
-#### Duplicate Prevention:
-- Database-level: Compound unique index on `(event, user)` in RSVP collection
-- Application-level: `$ne` check in atomic query + duplicate key error handling
-
----
-
+ 
 ## 🛠️ Running Locally
 
 ### Prerequisites
@@ -221,6 +154,76 @@ pnpm dev
 | POST | `/api/upload` | Upload event image |
 
 ---
+
+---
+
+## 📋 Technical Details
+
+### RSVP Capacity & Concurrency Handling
+
+The system uses **MongoDB atomic operations** and **transactions** to prevent race conditions when multiple users attempt to RSVP for the last available spot.
+
+#### Strategy: Atomic `findOneAndUpdate` with Transactions
+
+```javascript
+// POST /api/events/:id/rsvp - Uses atomic operations
+router.post('/:id/rsvp', auth, async (req, res) => {
+  const session = await mongoose.startSession();
+  
+  try {
+    session.startTransaction();
+
+    // Atomic operation: Check capacity AND add user in ONE operation
+    const event = await Event.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        // Atomic conditions:
+        // 1. Event has available capacity
+        $expr: { $lt: [{ $size: '$attendees' }, '$maxAttendees'] },
+        // 2. User not already attending
+        attendees: { $ne: req.user._id }
+      },
+      {
+        // Atomically add user to attendees
+        $addToSet: { attendees: req.user._id }
+      },
+      { new: true, session }
+    );
+
+    if (!event) {
+      await session.abortTransaction();
+      // Return appropriate error (capacity full, already RSVP'd, etc.)
+    }
+
+    // Create RSVP record
+    const rsvp = new RSVP({ event: event._id, user: req.user._id });
+    await rsvp.save({ session });
+    
+    await session.commitTransaction();
+    res.status(201).json({ message: 'Successfully RSVP\'d' });
+  } catch (error) {
+    await session.abortTransaction();
+    // Handle errors
+  } finally {
+    session.endSession();
+  }
+});
+```
+
+#### Why This Works:
+1. **`findOneAndUpdate`** is atomic - the capacity check and attendee addition happen in a single database operation
+2. **`$expr`** with `$size` comparison ensures accurate real-time capacity checking
+3. **`$addToSet`** prevents duplicate entries
+4. **`$ne` condition** ensures user isn't already attending
+5. **Transactions** ensure RSVP record and event update are consistent
+
+#### Duplicate Prevention:
+- Database-level: Compound unique index on `(event, user)` in RSVP collection
+- Application-level: `$ne` check in atomic query + duplicate key error handling
+
+---
+
+
 
 ## ✅ Features Checklist
 
